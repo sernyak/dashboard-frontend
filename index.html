@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Інтерактивний Дашборд Аналітики (Live)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #111827; color: #e5e7eb; }
+        .chart-container { position: relative; height: 40vh; width: 100%; }
+        .card { background-color: #1f2937; border: 1px solid #374151; border-radius: 0.75rem; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); }
+        .kpi-value { font-size: 2.25rem; font-weight: 800; line-height: 1; }
+        .kpi-label { font-size: 0.875rem; color: #9ca3af; text-transform: uppercase; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 2s linear infinite; margin: 20px auto; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .html-funnel-container { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%; height: 100%; min-height: 280px; justify-content: center; }
+        .funnel-segment { height: 25%; color: white; text-align: center; display: flex; justify-content: center; align-items: center; position: relative; transition: transform 0.2s ease-in-out; }
+        #funnel-launched { background-color: rgba(59, 130, 246, 0.7); width: 100%; clip-path: polygon(0% 0, 100% 0, 92.5% 100%, 7.5% 100%); }
+        #funnel-detected { background-color: rgba(251, 191, 36, 0.7); width: 85%; clip-path: polygon(0% 0, 100% 0, 91.175% 100%, 8.825% 100%); }
+        #funnel-intercepts { background-color: rgba(249, 115, 22, 0.7); width: 70%; clip-path: polygon(0% 0, 100% 0, 89.285% 100%, 10.715% 100%); }
+        #funnel-destroyed { background-color: rgba(34, 197, 94, 0.7); width: 55%; clip-path: polygon(0% 0, 100% 0, 86.36% 100%, 13.64% 100%); }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body class="p-4 md:p-8">
+    <div class="container mx-auto">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-white">Інтерактивний Дашборд Аналітики</h1>
+            <p class="text-lg text-gray-400 mt-2">Аналіз ефективності збиття повітряних цілей</p>
+        </header>
+
+        <div id="dashboardContent" class="hidden">
+             <!-- Filters Section -->
+            <div class="card mb-8">
+                 <h2 class="text-xl font-semibold mb-4 text-white">Фільтри</h2>
+                 <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 items-end">
+                    <div><label for="dateStart" class="block text-sm font-medium text-gray-300 mb-1">Дата початку</label><input type="date" id="dateStart" class="w-full bg-gray-700 border border-gray-600 rounded-lg p-2 text-white"></div>
+                    <div><label for="dateEnd" class="block text-sm font-medium text-gray-300 mb-1">Дата кінця</label><input type="date" id="dateEnd" class="w-full bg-gray-700 border border-gray-600 rounded-lg p-2 text-white"></div>
+                    <div><label for="directionFilter" class="block text-sm font-medium text-gray-300 mb-1">Напрям</label><select id="directionFilter" class="w-full bg-gray-700 border border-gray-600 rounded-lg p-2 text-white"></select></div>
+                    <div><label for="crewFilter" class="block text-sm font-medium text-gray-300 mb-1">Екіпаж</label><select id="crewFilter" class="w-full bg-gray-700 border border-gray-600 rounded-lg p-2 text-white"></select></div>
+                    <div><label for="takeoffPointFilter" class="block text-sm font-medium text-gray-300 mb-1">Точка злету</label><select id="takeoffPointFilter" class="w-full bg-gray-700 border border-gray-600 rounded-lg p-2 text-white"></select></div>
+                    <div><label for="radarFilter" class="block text-sm font-medium text-gray-300 mb-1">РЛС</label><select id="radarFilter" class="w-full bg-gray-700 border border-gray-600 rounded-lg p-2 text-white"></select></div>
+                    <div>
+                        <label for="uavTypeFilter" class="block text-sm font-medium text-gray-300 mb-1">Тип БпЛА</label>
+                        <select id="uavTypeFilter" class="w-full bg-gray-700 border border-gray-600 rounded-lg p-2 text-white"></select>
+                    </div>
+                    <div class="mt-4 md:mt-0"><button id="clearFiltersButton" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition-colors duration-300">Очистити</button></div>
+                 </div>
+            </div>
+
+            <!-- KPIs -->
+            <h3 class="text-lg font-semibold mb-4 text-gray-300">Абсолютні Показники</h3>
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+                <div class="card text-center"><div id="kpiLaunched" class="kpi-value text-blue-400">0</div><div class="kpi-label">БпЛА перетнуло ЛБЗ/ДКУ</div></div>
+                <div class="card text-center"><div id="kpiDetected" class="kpi-value text-yellow-400">0</div><div class="kpi-label">БпЛА виявлено РЛС</div></div>
+                <div class="card text-center"><div id="kpiIntercepts" class="kpi-value text-orange-400">0</div><div class="kpi-label">Пусків перехоплювачів</div></div>
+                <div class="card text-center"><div id="kpiDestroyed" class="kpi-value text-green-400">0</div><div class="kpi-label">БпЛА знищено</div></div>
+                <div class="card text-center"><div id="kpiNotDestroyed" class="kpi-value text-red-400">0</div><div class="kpi-label">БпЛА не знищено</div></div>
+            </div>
+
+            <h3 class="text-lg font-semibold mb-4 text-gray-300">Ключові Коефіцієнти Ефективності (ККЕ)</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                <div class="card text-center"><div id="kpiDetectionRate" class="kpi-value text-yellow-300">0%</div><div class="kpi-label">Ефективність виявлення</div></div>
+                <div class="card text-center"><div id="kpiLaunchEffectiveness" class="kpi-value text-orange-300">0%</div><div class="kpi-label">Ефективність перехоплення</div></div>
+                <div class="card text-center"><div id="kpiKillRate" class="kpi-value text-green-300">0%</div><div class="kpi-label">Загальна ефективність (Kill Rate)</div></div>
+            </div>
+
+            <!-- Charts -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                <div class="card"><h3 class="text-lg font-semibold mb-4">Воронка ефективності</h3><div class="chart-container"><div id="funnelChart" class="html-funnel-container"><div id="funnel-launched" class="funnel-segment"><div class="funnel-segment-content"><div class="funnel-label">Перетнуло ЛБЗ/ДКУ</div><div class="funnel-value" id="funnel-value-launched">0</div></div></div><div id="funnel-detected" class="funnel-segment"><div class="funnel-segment-content"><div class="funnel-label">Виявлено РЛС</div><div class="funnel-value" id="funnel-value-detected">0</div><div class="funnel-percentage" id="funnel-perc-detected">(0%)</div></div></div><div id="funnel-intercepts" class="funnel-segment"><div class="funnel-segment-content"><div class="funnel-label">Пуски</div><div class="funnel-value" id="funnel-value-intercepts">0</div><div class="funnel-percentage" id="funnel-perc-intercepts">(0%)</div></div></div><div id="funnel-destroyed" class="funnel-segment"><div class="funnel-segment-content"><div class="funnel-label">Знищено</div><div class="funnel-value" id="funnel-value-destroyed">0</div><div class="funnel-percentage" id="funnel-perc-destroyed">(0%)</div></div></div></div></div></div>
+                <div class="card"><h3 class="text-lg font-semibold mb-4">Відсоткові показники ураження</h3><div class="chart-container"><canvas id="killRateComparisonChart"></canvas></div></div>
+                <div class="card lg:col-span-2"><h3 class="text-lg font-semibold mb-4">Загальна динаміка воронки</h3><div class="chart-container"><canvas id="dailyChart"></canvas></div></div>
+                <div class="card lg:col-span-2">
+                    <h3 class="text-lg font-semibold mb-4">Динаміка воронки по днях</h3>
+                    <div class="chart-container"><canvas id="dailyFunnelChart"></canvas></div>
+                </div>
+                <div class="card"><h3 class="text-lg font-semibold mb-4">Ефективність по екіпажах</h3><div class="chart-container" style="height: 50vh;"><canvas id="crewChart"></canvas></div></div>
+                <div class="card"><h3 class="text-lg font-semibold mb-4">Ефективність по точках злету</h3><div class="chart-container" style="height: 50vh;"><canvas id="takeoffPointChart"></canvas></div></div>
+                <div class="card"><h3 class="text-lg font-semibold mb-4">Знищено по типах БпЛА</h3><div class="chart-container"><canvas id="targetTypeChart"></canvas></div></div>
+                <div class="card"><h3 class="text-lg font-semibold mb-4">Ефективність по напрямках</h3><div class="chart-container"><canvas id="directionChart"></canvas></div></div>
+            </div>
+            <div class="card lg:col-span-2"><h3 class="text-lg font-semibold mb-4">Ефективність РЛС (Виявлено БпЛА)</h3><div class="chart-container"><canvas id="radarChart"></canvas></div></div>
+        </div>
+        <div id="loader" class="loader"></div>
+        <div id="initialMessage" class="text-center text-gray-400 mt-10">
+            <p>Завантаження актуальних даних з сервера...</p>
+        </div>
+    </div>
+
+    <script>
+    const AppState = {
+        originalData: [],
+        charts: {},
+        ui: {
+            dateStartFilter: document.getElementById('dateStart'),
+            dateEndFilter: document.getElementById('dateEnd'),
+            takeoffPointFilter: document.getElementById('takeoffPointFilter'),
+            radarFilter: document.getElementById('radarFilter'),
+            directionFilter: document.getElementById('directionFilter'),
+            crewFilter: document.getElementById('crewFilter'),
+            uavTypeFilter: document.getElementById('uavTypeFilter'),
+            clearFiltersButton: document.getElementById('clearFiltersButton'),
+            dashboardContent: document.getElementById('dashboardContent'),
+            initialMessage: document.getElementById('initialMessage'),
+            loader: document.getElementById('loader'),
+        }
+    };
+
+    Chart.defaults.color = '#9ca3af';
+    Chart.defaults.font.family = "'Inter', sans-serif";
+    Chart.register(ChartDataLabels);
+    
+    const PALETTE_1 = ['#54a0ff', '#9b59b6', '#1dd1a1', '#ff9f43', '#00d2d3', '#ff6b6b', '#6c5ce7', '#feca57'];
+    const PALETTE_2 = ['#2ecc71', '#f1c40f', '#e67e22', '#48dbfb', '#e74c3c', '#2980b9', '#d35400', '#8e44ad'];
+
+    window.onload = initializeDashboard;
+
+    async function initializeDashboard() {
+        setLoadingState(true);
+        try {
+            AppState.originalData = await fetchData();
+            populateFilters(AppState.originalData);
+            applyFilters();
+            setLoadingState(false);
+        } catch (error) {
+            handleInitializationError(error);
+        }
+    }
+
+    async function fetchData() {
+        try {
+            const response = await fetch('https://dashboard-backend-e81h.onrender.com/api/data');
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return await response.json();
+        } catch (error) {
+            console.error('Не вдалося підключитися до сервера.', error);
+            throw new Error('Не вдалося завантажити дані з сервера. Будь ласка, перевірте ваше інтернет-з\'єднання або стан сервера.');
+        }
+    }
+
+    function applyFilters() {
+        const { dateStartFilter, dateEndFilter, takeoffPointFilter, radarFilter, directionFilter, crewFilter, uavTypeFilter } = AppState.ui;
+        const startDate = dateStartFilter.value;
+        const endDate = dateEndFilter.value;
+        const selectedTakeoffPoint = takeoffPointFilter.value;
+        const selectedRadar = radarFilter.value;
+        const selectedDirection = directionFilter.value;
+        const selectedCrew = crewFilter.value;
+        const selectedUavType = uavTypeFilter.value;
+
+        const filteredData = AppState.originalData.map(day => {
+            const filteredIntercepts = day.intercepts.filter(intercept => {
+                const uavTypeMatch = selectedUavType === 'all' || intercept.targetType === selectedUavType;
+
+                return (selectedDirection === 'all' || intercept.direction === selectedDirection) &&
+                       (selectedCrew === 'all' || intercept.crew === selectedCrew) &&
+                       (selectedTakeoffPoint === 'all' || intercept.takeoffPoint === selectedTakeoffPoint) &&
+                       uavTypeMatch;
+            });
+            return { ...day, intercepts: filteredIntercepts };
+        }).filter(day =>
+            (!startDate || day.date >= startDate) && (!endDate || day.date <= endDate)
+        );
+        updateDashboard(filteredData);
+    }
+
+    function resetFilters() {
+        const { dateStartFilter, dateEndFilter, takeoffPointFilter, radarFilter, directionFilter, crewFilter, uavTypeFilter } = AppState.ui;
+        if (AppState.originalData.length > 0) {
+            dateStartFilter.value = AppState.originalData[0]?.date;
+            dateEndFilter.value = AppState.originalData[AppState.originalData.length - 1]?.date;
+        }
+        takeoffPointFilter.value = 'all';
+        radarFilter.value = 'all';
+        directionFilter.value = 'all';
+        crewFilter.value = 'all';
+        uavTypeFilter.value = 'all';
+        applyFilters();
+    }
+
+    function updateDashboard(data) {
+        const selectedRadar = AppState.ui.radarFilter.value;
+        const totalLaunched = data.reduce((sum, day) => sum + day.launched, 0);
+        const totalDetected = data.reduce((sum, day) => sum + (selectedRadar === 'all' ? day.detected : (day.radars[selectedRadar] || 0)), 0);
+        const allIntercepts = data.flatMap(day => day.intercepts);
+        const totalIntercepts = allIntercepts.length;
+        const totalDestroyed = allIntercepts.filter(i => i.isDestroyed).length;
+
+        const detectionRate = totalLaunched > 0 ? (totalDetected / totalLaunched) * 100 : 0;
+        const launchEffectiveness = totalIntercepts > 0 ? (totalDestroyed / totalIntercepts) * 100 : 0;
+        const killRate = totalLaunched > 0 ? (totalDestroyed / totalLaunched) * 100 : 0;
+
+        document.getElementById('kpiLaunched').textContent = totalLaunched.toLocaleString('uk-UA');
+        document.getElementById('kpiDetected').textContent = totalDetected.toLocaleString('uk-UA');
+        document.getElementById('kpiIntercepts').textContent = totalIntercepts.toLocaleString('uk-UA');
+        document.getElementById('kpiDestroyed').textContent = totalDestroyed.toLocaleString('uk-UA');
+        document.getElementById('kpiNotDestroyed').textContent = (totalIntercepts - totalDestroyed).toLocaleString('uk-UA');
+        document.getElementById('kpiDetectionRate').textContent = detectionRate.toFixed(1) + '%';
+        document.getElementById('kpiLaunchEffectiveness').textContent = launchEffectiveness.toFixed(1) + '%';
+        document.getElementById('kpiKillRate').textContent = killRate.toFixed(1) + '%';
+
+        updateFunnelChart({ launched: totalLaunched, detected: totalDetected, intercepts: totalIntercepts, destroyed: totalDestroyed });
+        
+        const labels = data.map(d => d.date);
+        
+        const dailyLaunched = data.map(d => d.launched);
+        const dailyDetected = data.map(day => selectedRadar === 'all' ? day.detected : (day.radars[selectedRadar] || 0));
+        const dailyIntercepts = data.map(d => d.intercepts.length);
+        const dailyDestroyed = data.map(d => d.intercepts.filter(i => i.isDestroyed).length);
+        
+        updateDailyChart(labels, dailyLaunched, dailyDetected, dailyIntercepts, dailyDestroyed);
+        updateDailyFunnelChart(labels, dailyLaunched, dailyDetected, dailyIntercepts, dailyDestroyed);
+        updateKillRateComparisonChart(totalLaunched, totalDetected, totalIntercepts, totalDestroyed);
+        updateTakeoffPointChart(allIntercepts);
+        updateTargetTypeChart(allIntercepts);
+        updateDirectionChart(allIntercepts);
+        updateCrewChart(allIntercepts);
+        updateRadarChart(data, totalLaunched);
+    }
+
+    function populateFilters(data) {
+        const { dateStartFilter, dateEndFilter, takeoffPointFilter, radarFilter, directionFilter, crewFilter, uavTypeFilter, clearFiltersButton } = AppState.ui;
+        if (data.length > 0) {
+            dateStartFilter.value = data[0]?.date;
+            dateStartFilter.min = data[0]?.date;
+            dateStartFilter.max = data[data.length - 1]?.date;
+            dateEndFilter.value = data[data.length - 1]?.date;
+            dateEndFilter.min = data[0]?.date;
+            dateEndFilter.max = data[data.length - 1]?.date;
+        }
+
+        const takeoffPoints = new Set(), directions = new Set(), crews = new Set(), radars = new Set(), uavTypes = new Set();
+        data.forEach(day => {
+            day.intercepts.forEach(intercept => {
+                takeoffPoints.add(intercept.takeoffPoint);
+                directions.add(intercept.direction);
+                crews.add(intercept.crew);
+                uavTypes.add(intercept.targetType);
+            });
+            Object.keys(day.radars).forEach(radar => radars.add(radar));
+        });
+
+        const populateSelect = (select, items, allLabel) => {
+            select.innerHTML = `<option value="all">${allLabel}</option>`;
+            Array.from(items).sort().forEach(item => {
+                if(item && item !== 'Невідомо') {
+                    const option = document.createElement('option');
+                    option.value = item; option.textContent = item; select.appendChild(option);
+                }
+            });
+        };
+
+        populateSelect(takeoffPointFilter, takeoffPoints, 'Всі точки');
+        populateSelect(directionFilter, directions, 'Всі напрямки');
+        populateSelect(crewFilter, crews, 'Всі екіпажі');
+        populateSelect(radarFilter, radars, 'Всі РЛС');
+        populateSelect(uavTypeFilter, uavTypes, 'Всі типи');
+
+        dateStartFilter.addEventListener('change', applyFilters);
+        dateEndFilter.addEventListener('change', applyFilters);
+        takeoffPointFilter.addEventListener('change', applyFilters);
+        radarFilter.addEventListener('change', applyFilters);
+        directionFilter.addEventListener('change', applyFilters);
+        crewFilter.addEventListener('change', applyFilters);
+        uavTypeFilter.addEventListener('change', applyFilters);
+        clearFiltersButton.addEventListener('click', resetFilters);
+    }
+
+    function updateFunnelChart(totals) {
+        const { launched, detected, intercepts, destroyed } = totals;
+        document.getElementById('funnel-value-launched').textContent = launched.toLocaleString('uk-UA');
+        document.getElementById('funnel-value-detected').textContent = detected.toLocaleString('uk-UA');
+        document.getElementById('funnel-value-intercepts').textContent = intercepts.toLocaleString('uk-UA');
+        document.getElementById('funnel-value-destroyed').textContent = destroyed.toLocaleString('uk-UA');
+        const percDetected = launched > 0 ? (detected / launched * 100) : 0;
+        const percIntercepts = detected > 0 ? (intercepts / detected * 100) : 0;
+        const percDestroyed = intercepts > 0 ? (destroyed / intercepts * 100) : 0;
+        document.getElementById('funnel-perc-detected').textContent = `(${percDetected.toFixed(1)}% від запущених)`;
+        document.getElementById('funnel-perc-intercepts').textContent = `(${percIntercepts.toFixed(1)}% від виявлених)`;
+        document.getElementById('funnel-perc-destroyed').textContent = `(${percDestroyed.toFixed(1)}% від пусків)`;
+    }
+
+    function updateDailyChart(labels, launchedData, detectedData, interceptsData, destroyedData) {
+        if (AppState.charts.daily) AppState.charts.daily.destroy();
+        AppState.charts.daily = new Chart(document.getElementById('dailyChart'), {
+            type: 'bar', data: {
+                labels, datasets: [
+                    { label: 'Перетнуло ЛБЗ/ДКУ', data: launchedData, backgroundColor: 'rgba(59, 130, 246, 0.5)', order: 4, datalabels: { display: false } },
+                    { label: 'Виявлено', data: detectedData, borderColor: 'rgba(251, 191, 36, 1)', type: 'line', tension: 0.3, fill: false, order: 3 },
+                    { label: 'Пуски', data: interceptsData, borderColor: 'rgba(249, 115, 22, 1)', type: 'line', tension: 0.3, fill: false, order: 2 },
+                    { label: 'Знищено', data: destroyedData, borderColor: 'rgba(34, 197, 94, 1)', type: 'line', tension: 0.3, fill: false, order: 1 }
+                ]
+            }, options: getChartOptionsWithDataLabels()
+        });
+    }
+
+    function updateDailyFunnelChart(labels, dailyLaunched, dailyDetected, dailyIntercepts, dailyDestroyed) {
+        if (AppState.charts.dailyFunnel) AppState.charts.dailyFunnel.destroy();
+        
+        const options = getChartOptionsWithDataLabels();
+        options.plugins.tooltip = {
+            callbacks: {
+                label: function(context) {
+                    const label = context.dataset.label || '';
+                    const value = context.raw;
+                    const index = context.dataIndex;
+                    let percentage = 0;
+                    let percentageLabel = '';
+
+                    switch (label) {
+                        case 'Виявлено':
+                            const launched = dailyLaunched[index];
+                            percentage = launched > 0 ? (value / launched * 100) : 0;
+                            percentageLabel = `від запущених`;
+                            break;
+                        case 'Пуски':
+                            const detected = dailyDetected[index];
+                            percentage = detected > 0 ? (value / detected * 100) : 0;
+                            percentageLabel = `від виявлених`;
+                            break;
+                        case 'Знищено':
+                            const intercepts = dailyIntercepts[index];
+                            percentage = intercepts > 0 ? (value / intercepts * 100) : 0;
+                            percentageLabel = `від пусків`;
+                            break;
+                    }
+
+                    if (percentageLabel) {
+                        return `${label}: ${value} (${percentage.toFixed(0)}% ${percentageLabel})`;
+                    }
+                    return `${label}: ${value}`;
+                }
+            }
+        };
+
+        AppState.charts.dailyFunnel = new Chart(document.getElementById('dailyFunnelChart'), {
+            type: 'bar', data: {
+                labels, datasets: [
+                    { label: 'Виявлено', data: dailyDetected, backgroundColor: 'rgba(251, 191, 36, 0.5)', order: 3 },
+                    { label: 'Пуски', data: dailyIntercepts, borderColor: 'rgba(249, 115, 22, 1)', type: 'line', tension: 0.3, order: 2 },
+                    { label: 'Знищено', data: dailyDestroyed, borderColor: 'rgba(34, 197, 94, 1)', type: 'line', tension: 0.3, order: 1 }
+                ]
+            }, options: options
+        });
+    }
+
+    function createEnhancedDoughnutChart(canvasId, chartInstance, data, colorPalette) {
+        const ctx = document.getElementById(canvasId).getContext('2d');
+        if (chartInstance) chartInstance.destroy();
+        if (data.length === 0) {
+            ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+            ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#9ca3af'; ctx.font = "16px 'Inter', sans-serif";
+            ctx.fillText('Немає даних для відображення', ctx.canvas.width / 2, ctx.canvas.height / 2); ctx.restore(); return null;
+        }
+
+        const total = data.reduce((sum, item) => sum + item[1], 0);
+        const chartData = data.map(d => d[1]);
+        const chartLabels = data.map(d => d[0]);
+        const chartColors = Array.from({ length: data.length }, (_, i) => colorPalette[i % colorPalette.length]);
+
+        return new Chart(ctx, {
+            type: 'doughnut', data: {
+                labels: chartLabels,
+                datasets: [{ 
+                    data: chartData, 
+                    backgroundColor: chartColors, 
+                    borderWidth: 0 
+                }]
+            }, 
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'right', labels: { boxWidth: 20, color: '#e5e7eb' } },
+                    datalabels: {
+                        color: 'white',
+                        textAlign: 'center',
+                        font: { 
+                            weight: 'bold',
+                            size: 11
+                        },
+                        formatter: (value) => {
+                            const percentage = total > 0 ? (value / total * 100) : 0;
+                            if (percentage < 4) return null;
+                            return `${value}\n(${percentage.toFixed(0)}%)`;
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    function createHorizontalBarChart(canvasId, chartInstance, intercepts, dataKey, colorPalette) {
+        if (chartInstance) chartInstance.destroy();
+
+        const dataMap = intercepts.reduce((acc, item) => {
+            const key = item[dataKey];
+            if (key && key !== 'Невідомо') {
+                if (!acc[key]) {
+                    acc[key] = { total: 0, destroyed: 0 };
+                }
+                acc[key].total++;
+                if (item.isDestroyed) {
+                    acc[key].destroyed++;
+                }
+            }
+            return acc;
+        }, {});
+
+        const sortedData = Object.entries(dataMap)
+            .filter(([, stats]) => stats.destroyed > 0)
+            .sort(([, a], [, b]) => b.destroyed - a.destroyed);
+
+        const options = getChartOptions();
+        options.indexAxis = 'y';
+        options.plugins.datalabels = {
+            anchor: 'end',
+            align: 'right',
+            color: 'white',
+            font: { weight: 'bold' },
+            formatter: (value, context) => {
+                const stats = sortedData[context.dataIndex][1];
+                const killRate = stats.total > 0 ? (stats.destroyed / stats.total * 100) : 0;
+                return `${value} збито (${killRate.toFixed(0)}%)`;
+            }
+        };
+
+        return new Chart(document.getElementById(canvasId), {
+            type: 'bar',
+            data: {
+                labels: sortedData.map(c => c[0]),
+                datasets: [{
+                    label: 'Знищено БпЛА',
+                    data: sortedData.map(c => c[1].destroyed),
+                    backgroundColor: colorPalette,
+                }]
+            },
+            options: options
+        });
+    }
+
+    function updateKillRateComparisonChart(totalLaunched, totalDetected, totalIntercepts, totalDestroyed) {
+        if (AppState.charts.killRateComparison) AppState.charts.killRateComparison.destroy();
+
+        const killRateFromLaunched = totalLaunched > 0 ? (totalDestroyed / totalLaunched * 100) : 0;
+        const killRateFromDetected = totalDetected > 0 ? (totalDestroyed / totalDetected * 100) : 0;
+        const killRateFromIntercepts = totalIntercepts > 0 ? (totalDestroyed / totalIntercepts * 100) : 0;
+
+        const options = getChartOptions();
+        options.indexAxis = 'y';
+        options.scales.x.max = 100;
+        options.scales.x.ticks = { callback: (value) => value + '%' };
+        options.plugins.datalabels = {
+            display: true,
+            anchor: 'end',
+            align: 'right',
+            color: 'white',
+            font: { weight: 'bold' },
+            formatter: (value) => `${value.toFixed(1)}%`
+        };
+
+
+        AppState.charts.killRateComparison = new Chart(document.getElementById('killRateComparisonChart'), {
+            type: 'bar',
+            data: {
+                labels: ['% збиття від Пусків', '% збиття від Виявлених', '% збиття від Перетину ЛБЗ/ДКУ'],
+                datasets: [{
+                    label: 'Ефективність ураження',
+                    data: [killRateFromIntercepts, killRateFromDetected, killRateFromLaunched],
+                    backgroundColor: ['#2ecc71', '#f1c40f', '#3498db']
+                }]
+            },
+            options: options
+        });
+    }
+
+    function updateCrewChart(intercepts) {
+        AppState.charts.crew = createHorizontalBarChart('crewChart', AppState.charts.crew, intercepts, 'crew', PALETTE_1);
+    }
+
+    function updateTakeoffPointChart(intercepts) {
+        AppState.charts.takeoffPoint = createHorizontalBarChart('takeoffPointChart', AppState.charts.takeoffPoint, intercepts, 'takeoffPoint', PALETTE_2);
+    }
+
+    function updateTargetTypeChart(intercepts) {
+        const data = aggregateAndSort(intercepts, 'targetType', false);
+        AppState.charts.targetType = createEnhancedDoughnutChart('targetTypeChart', AppState.charts.targetType, data, PALETTE_1);
+    }
+    
+    function updateDirectionChart(intercepts) {
+        const data = aggregateAndSort(intercepts, 'direction', false);
+        AppState.charts.direction = createEnhancedDoughnutChart('directionChart', AppState.charts.direction, data, PALETTE_2);
+    }
+    
+    function updateRadarChart(dailyData, totalLaunched) {
+        if (AppState.charts.radar) AppState.charts.radar.destroy();
+
+        const radarTotals = dailyData.reduce((acc, day) => {
+            for (const [radar, count] of Object.entries(day.radars)) {
+                acc[radar] = (acc[radar] || 0) + count;
+            }
+            return acc;
+        }, {});
+        
+        const sortedRadars = Object.entries(radarTotals).sort(([, a], [, b]) => b - a);
+
+        const options = getChartOptions();
+        options.plugins.datalabels = {
+            display: true,
+            anchor: 'end',
+            align: 'top',
+            offset: 4,
+            color: 'white',
+            font: { weight: 'bold' },
+            formatter: (value) => {
+                const percentage = totalLaunched > 0 ? (value / totalLaunched * 100) : 0;
+                return `${value} (${percentage.toFixed(1)}%)`;
+            }
+        };
+        options.plugins.tooltip = {
+            callbacks: {
+                label: function(context) {
+                    const value = context.raw;
+                    const percentage = totalLaunched > 0 ? (value / totalLaunched * 100) : 0;
+                    return `Виявлено: ${value} (${percentage.toFixed(1)}% від усіх перетинів)`;
+                }
+            }
+        };
+
+        AppState.charts.radar = new Chart(document.getElementById('radarChart'), {
+            type: 'bar',
+            data: {
+                labels: sortedRadars.map(p => p[0]),
+                datasets: [{
+                    label: 'Виявлено БпЛА',
+                    data: sortedRadars.map(p => p[1]),
+                    backgroundColor: 'rgba(99, 102, 241, 0.7)'
+                }]
+            },
+            options: options
+        });
+    }
+
+    function setLoadingState(isLoading) {
+        AppState.ui.loader.classList.toggle('hidden', !isLoading);
+        AppState.ui.initialMessage.classList.toggle('hidden', !isLoading);
+        AppState.ui.dashboardContent.classList.toggle('hidden', isLoading);
+    }
+
+    function handleInitializationError(error) {
+        console.error('Помилка ініціалізації дашборду:', error);
+        AppState.ui.initialMessage.textContent = error.message;
+        AppState.ui.initialMessage.classList.add('text-red-400');
+        setLoadingState(false);
+        AppState.ui.initialMessage.classList.remove('hidden');
+    }
+
+    function aggregateAndSort(data, key, slice) {
+        const aggregated = data.filter(i => i.isDestroyed).reduce((acc, item) => {
+            const itemKey = item[key];
+            if(itemKey && itemKey !== 'Невідомо') { acc[itemKey] = (acc[itemKey] || 0) + 1; }
+            return acc;
+        }, {});
+        const sorted = Object.entries(aggregated).sort(([,a],[,b]) => b-a);
+        return slice ? sorted.slice(0, 10) : sorted;
+    }
+
+    function getChartOptions() { return { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', labels: { color: '#e5e7eb' } }, datalabels: { display: false } }, scales: { x: { grid: { display: false }, ticks: { color: '#9ca3af' } }, y: { grid: { color: '#374151' }, ticks: { beginAtZero: true, color: '#9ca3af' } } } }; }
+    
+    function getChartOptionsWithDataLabels() {
+        const options = getChartOptions();
+        options.plugins.datalabels = {
+            display: (context) => context.dataset.data[context.dataIndex] > 0,
+            color: 'white',
+            font: { weight: 'bold', size: 10 },
+            align: 'top',
+            anchor: 'end',
+            offset: 8,
+            formatter: (value) => value
+        };
+        return options;
+    }
+    </script>
+</body>
+</html>
