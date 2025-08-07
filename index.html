@@ -73,11 +73,13 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
                 <div class="card"><h3 class="text-lg font-semibold mb-4">Воронка ефективності</h3><div class="chart-container"><div id="funnelChart" class="html-funnel-container"><div id="funnel-launched" class="funnel-segment"><div class="funnel-segment-content"><div class="funnel-label">Перетнуло ЛБЗ/ДКУ</div><div class="funnel-value" id="funnel-value-launched">0</div></div></div><div id="funnel-detected" class="funnel-segment"><div class="funnel-segment-content"><div class="funnel-label">Виявлено РЛС</div><div class="funnel-value" id="funnel-value-detected">0</div><div class="funnel-percentage" id="funnel-perc-detected">(0%)</div></div></div><div id="funnel-intercepts" class="funnel-segment"><div class="funnel-segment-content"><div class="funnel-label">Пуски</div><div class="funnel-value" id="funnel-value-intercepts">0</div><div class="funnel-percentage" id="funnel-perc-intercepts">(0%)</div></div></div><div id="funnel-destroyed" class="funnel-segment"><div class="funnel-segment-content"><div class="funnel-label">Знищено</div><div class="funnel-value" id="funnel-value-destroyed">0</div><div class="funnel-percentage" id="funnel-perc-destroyed">(0%)</div></div></div></div></div></div>
                 <div class="card"><h3 class="text-lg font-semibold mb-4">Відсоткові показники ураження</h3><div class="chart-container"><canvas id="killRateComparisonChart"></canvas></div></div>
-                <div class="card lg:col-span-2"><h3 class="text-lg font-semibold mb-4">Загальна динаміка воронки</h3><div class="chart-container"><canvas id="dailyChart"></canvas></div></div>
+                
+                <!-- ЗМІНА: Новий графік замість двох старих -->
                 <div class="card lg:col-span-2">
-                    <h3 class="text-lg font-semibold mb-4">Динаміка воронки по днях</h3>
-                    <div class="chart-container"><canvas id="dailyFunnelChart"></canvas></div>
+                    <h3 class="text-lg font-semibold mb-4">Показники ураження по днях</h3>
+                    <div class="chart-container"><canvas id="dailyKillRateChart"></canvas></div>
                 </div>
+
                 <div class="card"><h3 class="text-lg font-semibold mb-4">Ефективність по екіпажах</h3><div class="chart-container" style="height: 50vh;"><canvas id="crewChart"></canvas></div></div>
                 <div class="card"><h3 class="text-lg font-semibold mb-4">Ефективність по точках злету</h3><div class="chart-container" style="height: 50vh;"><canvas id="takeoffPointChart"></canvas></div></div>
                 <div class="card"><h3 class="text-lg font-semibold mb-4">Знищено по типах БпЛА</h3><div class="chart-container"><canvas id="targetTypeChart"></canvas></div></div>
@@ -119,6 +121,32 @@
 
     window.onload = initializeDashboard;
 
+    function getUavCategory(type) {
+        const lowerType = type.toLowerCase();
+        if (lowerType.includes('шахед')) return 'Шахед';
+        if (lowerType.includes('гербера')) return 'Гербера';
+        return 'Інше';
+    }
+
+    // ЗМІНА: Допоміжна функція для розрахунку кількості запущених БпЛА
+    function getLaunchedCountForDay(day, selectedUavCategory) {
+        if (selectedUavCategory === 'all') {
+            return day.launched.total || 0;
+        }
+        if (selectedUavCategory === 'Шахед') {
+            return day.launched['Шахед'] || 0;
+        }
+        if (selectedUavCategory === 'Гербера') {
+            return day.launched['Гербера'] || 0;
+        }
+        if (selectedUavCategory === 'Інше') {
+            // Згідно з ТЗ, оскільки для "Інших" немає даних про перетин,
+            // для розрахунків воронки використовуємо дані по "Гербері" як основу.
+            return day.launched['Гербера'] || 0;
+        }
+        return 0;
+    }
+
     async function initializeDashboard() {
         setLoadingState(true);
         try {
@@ -137,7 +165,14 @@
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
-            return await response.json();
+            const data = await response.json();
+            return data.map(day => ({
+                ...day,
+                intercepts: day.intercepts.map(intercept => ({
+                    ...intercept,
+                    uavCategory: getUavCategory(intercept.targetType)
+                }))
+            }));
         } catch (error) {
             console.error('Не вдалося підключитися до сервера.', error);
             throw new Error('Не вдалося завантажити дані з сервера. Будь ласка, перевірте ваше інтернет-з\'єднання або стан сервера.');
@@ -152,11 +187,11 @@
         const selectedRadar = radarFilter.value;
         const selectedDirection = directionFilter.value;
         const selectedCrew = crewFilter.value;
-        const selectedUavType = uavTypeFilter.value;
+        const selectedUavCategory = uavTypeFilter.value;
 
         const filteredData = AppState.originalData.map(day => {
             const filteredIntercepts = day.intercepts.filter(intercept => {
-                const uavTypeMatch = selectedUavType === 'all' || intercept.targetType === selectedUavType;
+                const uavTypeMatch = selectedUavCategory === 'all' || intercept.uavCategory === selectedUavCategory;
 
                 return (selectedDirection === 'all' || intercept.direction === selectedDirection) &&
                        (selectedCrew === 'all' || intercept.crew === selectedCrew) &&
@@ -186,7 +221,11 @@
 
     function updateDashboard(data) {
         const selectedRadar = AppState.ui.radarFilter.value;
-        const totalLaunched = data.reduce((sum, day) => sum + day.launched, 0);
+        const selectedUavCategory = AppState.ui.uavTypeFilter.value;
+
+        // ЗМІНА: Використання допоміжної функції
+        const totalLaunched = data.reduce((sum, day) => sum + getLaunchedCountForDay(day, selectedUavCategory), 0);
+
         const totalDetected = data.reduce((sum, day) => sum + (selectedRadar === 'all' ? day.detected : (day.radars[selectedRadar] || 0)), 0);
         const allIntercepts = data.flatMap(day => day.intercepts);
         const totalIntercepts = allIntercepts.length;
@@ -207,16 +246,8 @@
 
         updateFunnelChart({ launched: totalLaunched, detected: totalDetected, intercepts: totalIntercepts, destroyed: totalDestroyed });
         
-        const labels = data.map(d => d.date);
-        
-        const dailyLaunched = data.map(d => d.launched);
-        const dailyDetected = data.map(day => selectedRadar === 'all' ? day.detected : (day.radars[selectedRadar] || 0));
-        const dailyIntercepts = data.map(d => d.intercepts.length);
-        const dailyDestroyed = data.map(d => d.intercepts.filter(i => i.isDestroyed).length);
-        
-        updateDailyChart(labels, dailyLaunched, dailyDetected, dailyIntercepts, dailyDestroyed);
-        updateDailyFunnelChart(labels, dailyLaunched, dailyDetected, dailyIntercepts, dailyDestroyed);
         updateKillRateComparisonChart(totalLaunched, totalDetected, totalIntercepts, totalDestroyed);
+        updateDailyFunnelDynamicsChart(data); // Новий графік
         updateTakeoffPointChart(allIntercepts);
         updateTargetTypeChart(allIntercepts);
         updateDirectionChart(allIntercepts);
@@ -235,13 +266,12 @@
             dateEndFilter.max = data[data.length - 1]?.date;
         }
 
-        const takeoffPoints = new Set(), directions = new Set(), crews = new Set(), radars = new Set(), uavTypes = new Set();
+        const takeoffPoints = new Set(), directions = new Set(), crews = new Set(), radars = new Set();
         data.forEach(day => {
             day.intercepts.forEach(intercept => {
                 takeoffPoints.add(intercept.takeoffPoint);
                 directions.add(intercept.direction);
                 crews.add(intercept.crew);
-                uavTypes.add(intercept.targetType);
             });
             Object.keys(day.radars).forEach(radar => radars.add(radar));
         });
@@ -255,12 +285,17 @@
                 }
             });
         };
+        
+        uavTypeFilter.innerHTML = `<option value="all">Всі типи</option>`;
+        ['Шахед', 'Гербера', 'Інше'].forEach(cat => {
+            const option = document.createElement('option');
+            option.value = cat; option.textContent = cat; uavTypeFilter.appendChild(option);
+        });
 
         populateSelect(takeoffPointFilter, takeoffPoints, 'Всі точки');
         populateSelect(directionFilter, directions, 'Всі напрямки');
         populateSelect(crewFilter, crews, 'Всі екіпажі');
         populateSelect(radarFilter, radars, 'Всі РЛС');
-        populateSelect(uavTypeFilter, uavTypes, 'Всі типи');
 
         dateStartFilter.addEventListener('change', applyFilters);
         dateEndFilter.addEventListener('change', applyFilters);
@@ -286,67 +321,68 @@
         document.getElementById('funnel-perc-destroyed').textContent = `(${percDestroyed.toFixed(1)}% від пусків)`;
     }
 
-    function updateDailyChart(labels, launchedData, detectedData, interceptsData, destroyedData) {
-        if (AppState.charts.daily) AppState.charts.daily.destroy();
-        AppState.charts.daily = new Chart(document.getElementById('dailyChart'), {
-            type: 'bar', data: {
-                labels, datasets: [
-                    { label: 'Перетнуло ЛБЗ/ДКУ', data: launchedData, backgroundColor: 'rgba(59, 130, 246, 0.5)', order: 4, datalabels: { display: false } },
-                    { label: 'Виявлено', data: detectedData, borderColor: 'rgba(251, 191, 36, 1)', type: 'line', tension: 0.3, fill: false, order: 3 },
-                    { label: 'Пуски', data: interceptsData, borderColor: 'rgba(249, 115, 22, 1)', type: 'line', tension: 0.3, fill: false, order: 2 },
-                    { label: 'Знищено', data: destroyedData, borderColor: 'rgba(34, 197, 94, 1)', type: 'line', tension: 0.3, fill: false, order: 1 }
-                ]
-            }, options: getChartOptionsWithDataLabels()
-        });
-    }
+    // ЗМІНА: Повністю перероблений графік
+    function updateDailyFunnelDynamicsChart(dailyData) {
+        if (AppState.charts.dailyKillRate) AppState.charts.dailyKillRate.destroy();
 
-    function updateDailyFunnelChart(labels, dailyLaunched, dailyDetected, dailyIntercepts, dailyDestroyed) {
-        if (AppState.charts.dailyFunnel) AppState.charts.dailyFunnel.destroy();
-        
-        const options = getChartOptionsWithDataLabels();
+        const labels = dailyData.map(d => d.date);
+        const selectedUavCategory = AppState.ui.uavTypeFilter.value;
+
+        const dailyMetrics = dailyData.map(day => {
+            const launched = getLaunchedCountForDay(day, selectedUavCategory);
+            return {
+                launched: launched,
+                intercepts: day.intercepts.length,
+                destroyed: day.intercepts.filter(i => i.isDestroyed).length,
+            };
+        });
+
+        const options = getChartOptions();
         options.plugins.tooltip = {
             callbacks: {
                 label: function(context) {
-                    const label = context.dataset.label || '';
+                    const i = context.dataIndex;
+                    const metrics = dailyMetrics[i];
                     const value = context.raw;
-                    const index = context.dataIndex;
-                    let percentage = 0;
-                    let percentageLabel = '';
+                    let label = context.dataset.label || '';
 
-                    switch (label) {
-                        case 'Виявлено':
-                            const launched = dailyLaunched[index];
-                            percentage = launched > 0 ? (value / launched * 100) : 0;
-                            percentageLabel = `від запущених`;
-                            break;
-                        case 'Пуски':
-                            const detected = dailyDetected[index];
-                            percentage = detected > 0 ? (value / detected * 100) : 0;
-                            percentageLabel = `від виявлених`;
-                            break;
-                        case 'Знищено':
-                            const intercepts = dailyIntercepts[index];
-                            percentage = intercepts > 0 ? (value / intercepts * 100) : 0;
-                            percentageLabel = `від пусків`;
-                            break;
+                    if (label === 'Знищено') {
+                        const perc = metrics.intercepts > 0 ? (metrics.destroyed / metrics.intercepts * 100) : 0;
+                        label = `Знищено: ${value} (${perc.toFixed(0)}% від пусків)`;
+                    } else if (label === 'Пуски') {
+                        const perc = metrics.launched > 0 ? (metrics.intercepts / metrics.launched * 100) : 0;
+                        label = `Пуски: ${value} (${perc.toFixed(0)}% від перетинів)`;
+                    } else {
+                        label = `${label}: ${value}`;
                     }
-
-                    if (percentageLabel) {
-                        return `${label}: ${value} (${percentage.toFixed(0)}% ${percentageLabel})`;
-                    }
-                    return `${label}: ${value}`;
+                    return label;
                 }
             }
         };
 
-        AppState.charts.dailyFunnel = new Chart(document.getElementById('dailyFunnelChart'), {
-            type: 'bar', data: {
-                labels, datasets: [
-                    { label: 'Виявлено', data: dailyDetected, backgroundColor: 'rgba(251, 191, 36, 0.5)', order: 3 },
-                    { label: 'Пуски', data: dailyIntercepts, borderColor: 'rgba(249, 115, 22, 1)', type: 'line', tension: 0.3, order: 2 },
-                    { label: 'Знищено', data: dailyDestroyed, borderColor: 'rgba(34, 197, 94, 1)', type: 'line', tension: 0.3, order: 1 }
+        AppState.charts.dailyKillRate = new Chart(document.getElementById('dailyKillRateChart'), {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: 'Перетнуло ЛБЗ/ДКУ',
+                        data: dailyMetrics.map(m => m.launched),
+                        backgroundColor: 'rgba(59, 130, 246, 0.7)',
+                    },
+                    {
+                        label: 'Пуски',
+                        data: dailyMetrics.map(m => m.intercepts),
+                        backgroundColor: 'rgba(249, 115, 22, 0.7)',
+                    },
+                    {
+                        label: 'Знищено',
+                        data: dailyMetrics.map(m => m.destroyed),
+                        backgroundColor: 'rgba(34, 197, 94, 0.7)',
+                    }
                 ]
-            }, options: options
+            },
+            options: options
         });
     }
 
@@ -488,7 +524,7 @@
     }
 
     function updateTargetTypeChart(intercepts) {
-        const data = aggregateAndSort(intercepts, 'targetType', false);
+        const data = aggregateAndSort(intercepts, 'uavCategory', false);
         AppState.charts.targetType = createEnhancedDoughnutChart('targetTypeChart', AppState.charts.targetType, data, PALETTE_1);
     }
     
@@ -572,19 +608,6 @@
 
     function getChartOptions() { return { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', labels: { color: '#e5e7eb' } }, datalabels: { display: false } }, scales: { x: { grid: { display: false }, ticks: { color: '#9ca3af' } }, y: { grid: { color: '#374151' }, ticks: { beginAtZero: true, color: '#9ca3af' } } } }; }
     
-    function getChartOptionsWithDataLabels() {
-        const options = getChartOptions();
-        options.plugins.datalabels = {
-            display: (context) => context.dataset.data[context.dataIndex] > 0,
-            color: 'white',
-            font: { weight: 'bold', size: 10 },
-            align: 'top',
-            anchor: 'end',
-            offset: 8,
-            formatter: (value) => value
-        };
-        return options;
-    }
     </script>
 </body>
 </html>
