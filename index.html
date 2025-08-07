@@ -121,46 +121,47 @@
     window.onload = initializeDashboard;
 
     function getUavCategory(type) {
-        if (type === 'Шахед') return 'Шахед';
-        if (type === 'Гербера') return 'Гербера';
+        const typeStr = String(type || '').trim();
+        if (typeStr === 'Шахед') return 'Шахед';
+        if (typeStr === 'Гербера') return 'Гербера';
         return 'Інше';
     }
 
     function getLaunchedCountForDay(day, selectedUavCategory) {
+        const launchedData = day.launched || {};
         if (selectedUavCategory === 'all') {
-            return day.launched.total || 0;
+            return launchedData.total || 0;
         }
         if (selectedUavCategory === 'Шахед') {
-            return day.launched['Шахед'] || 0;
+            return launchedData['Шахед'] || 0;
         }
         if (selectedUavCategory === 'Гербера') {
-            return day.launched['Гербера'] || 0;
+            return launchedData['Гербера'] || 0;
         }
         if (selectedUavCategory === 'Інше') {
-            return day.launched['Гербера'] || 0;
+            return launchedData['Гербера'] || 0;
         }
         return 0;
     }
 
-    // ВИПРАВЛЕНО: Нова функція для підрахунку виявлених БпЛА з урахуванням фільтра
     function getDetectedCountForDay(day, selectedUavCategory) {
+        const detectedData = day.detected || {};
         if (selectedUavCategory === 'all') {
-            return day.detected.total || 0;
+            return detectedData.total || 0;
         }
         if (selectedUavCategory === 'Шахед') {
-            return day.detected['Шахед'] || 0;
+            return detectedData['Шахед'] || 0;
         }
         if (selectedUavCategory === 'Гербера') {
-            return day.detected['Гербера'] || 0;
+            return detectedData['Гербера'] || 0;
         }
-        // Для категорії "Інше" підсумовуємо всі виявлені, що не є Шахедом або Герберою
         if (selectedUavCategory === 'Інше') {
             let otherDetected = 0;
-            for (const type in day.detected) {
+            Object.keys(detectedData).forEach(type => {
                 if (type !== 'total' && type !== 'Шахед' && type !== 'Гербера') {
-                    otherDetected += day.detected[type];
+                    otherDetected += detectedData[type];
                 }
-            }
+            });
             return otherDetected;
         }
         return 0;
@@ -250,39 +251,40 @@
     }
 
     function updateDashboard(data) {
-        const selectedRadar = AppState.ui.radarFilter.value;
-        const selectedUavCategory = AppState.ui.uavTypeFilter.value;
+        try {
+            const selectedUavCategory = AppState.ui.uavTypeFilter.value;
 
-        const totalLaunched = data.reduce((sum, day) => sum + getLaunchedCountForDay(day, selectedUavCategory), 0);
-        // ВИПРАВЛЕНО: Використання нової функції для підрахунку виявлених
-        const totalDetected = data.reduce((sum, day) => sum + getDetectedCountForDay(day, selectedUavCategory), 0);
-        
-        const allIntercepts = data.flatMap(day => day.intercepts);
-        const totalIntercepts = allIntercepts.length;
-        const totalDestroyed = allIntercepts.filter(i => i.isDestroyed).length;
+            const totalLaunched = data.reduce((sum, day) => sum + getLaunchedCountForDay(day, selectedUavCategory), 0);
+            const totalDetected = data.reduce((sum, day) => sum + getDetectedCountForDay(day, selectedUavCategory), 0);
+            
+            const allIntercepts = data.flatMap(day => day.intercepts);
+            const totalIntercepts = allIntercepts.length;
+            const totalDestroyed = allIntercepts.filter(i => i.isDestroyed).length;
 
-        const detectionRate = totalLaunched > 0 ? (totalDetected / totalLaunched) * 100 : 0;
-        const launchEffectiveness = totalIntercepts > 0 ? (totalDestroyed / totalIntercepts) * 100 : 0;
-        const killRate = totalLaunched > 0 ? (totalDestroyed / totalLaunched) * 100 : 0;
+            const detectionRate = totalLaunched > 0 ? (totalDetected / totalLaunched) * 100 : 0;
+            const launchEffectiveness = totalIntercepts > 0 ? (totalDestroyed / totalIntercepts) * 100 : 0;
+            const killRate = totalLaunched > 0 ? (totalDestroyed / totalLaunched) * 100 : 0;
 
-        document.getElementById('kpiLaunched').textContent = totalLaunched.toLocaleString('uk-UA');
-        document.getElementById('kpiDetected').textContent = totalDetected.toLocaleString('uk-UA');
-        document.getElementById('kpiIntercepts').textContent = totalIntercepts.toLocaleString('uk-UA');
-        document.getElementById('kpiDestroyed').textContent = totalDestroyed.toLocaleString('uk-UA');
-        document.getElementById('kpiNotDestroyed').textContent = (totalIntercepts - totalDestroyed).toLocaleString('uk-UA');
-        document.getElementById('kpiDetectionRate').textContent = detectionRate.toFixed(1) + '%';
-        document.getElementById('kpiLaunchEffectiveness').textContent = launchEffectiveness.toFixed(1) + '%';
-        document.getElementById('kpiKillRate').textContent = killRate.toFixed(1) + '%';
+            document.getElementById('kpiLaunched').textContent = totalLaunched.toLocaleString('uk-UA');
+            document.getElementById('kpiDetected').textContent = totalDetected.toLocaleString('uk-UA');
+            document.getElementById('kpiIntercepts').textContent = totalIntercepts.toLocaleString('uk-UA');
+            document.getElementById('kpiDestroyed').textContent = totalDestroyed.toLocaleString('uk-UA');
+            document.getElementById('kpiNotDestroyed').textContent = (totalIntercepts - totalDestroyed).toLocaleString('uk-UA');
+            document.getElementById('kpiDetectionRate').textContent = detectionRate.toFixed(1) + '%';
+            document.getElementById('kpiLaunchEffectiveness').textContent = launchEffectiveness.toFixed(1) + '%';
+            document.getElementById('kpiKillRate').textContent = killRate.toFixed(1) + '%';
 
-        updateFunnelChart({ launched: totalLaunched, detected: totalDetected, intercepts: totalIntercepts, destroyed: totalDestroyed });
-        
-        updateKillRateComparisonChart(totalLaunched, totalDetected, totalIntercepts, totalDestroyed);
-        updateDailyFunnelDynamicsChart(data);
-        updateTakeoffPointChart(allIntercepts);
-        updateTargetTypeChart(allIntercepts);
-        updateDirectionChart(allIntercepts);
-        updateCrewChart(allIntercepts);
-        updateRadarChart(data, totalLaunched);
+            updateFunnelChart({ launched: totalLaunched, detected: totalDetected, intercepts: totalIntercepts, destroyed: totalDestroyed });
+            updateKillRateComparisonChart(totalLaunched, totalDetected, totalIntercepts, totalDestroyed);
+            updateDailyFunnelDynamicsChart(data);
+            updateTakeoffPointChart(allIntercepts);
+            updateTargetTypeChart(allIntercepts);
+            updateDirectionChart(allIntercepts);
+            updateCrewChart(allIntercepts);
+            updateRadarChart(data, totalLaunched);
+        } catch (error) {
+            console.error("Помилка під час оновлення дашборду:", error);
+        }
     }
 
     function populateFilters(data) {
