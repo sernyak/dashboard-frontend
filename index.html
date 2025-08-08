@@ -127,50 +127,26 @@
         return 'Інше';
     }
 
+    // --- ОНОВЛЕНО ---
+    // Спрощена логіка для нової структури даних
     function getLaunchedCountForDay(day, selectedUavCategory) {
         const launchedData = day.launched || {};
         if (selectedUavCategory === 'all') {
             return launchedData.total || 0;
         }
-        if (selectedUavCategory === 'Шахед') {
-            return launchedData['Шахед'] || 0;
-        }
-        if (selectedUavCategory === 'Гербера') {
-            return launchedData['Гербера'] || 0;
-        }
-        if (selectedUavCategory === 'Інше') {
-            let otherLaunched = 0;
-            Object.keys(launchedData).forEach(type => {
-                if (type !== 'total' && type !== 'Шахед' && type !== 'Гербера') {
-                    otherLaunched += launchedData[type];
-                }
-            });
-            return otherLaunched;
-        }
-        return 0;
+        return launchedData[selectedUavCategory] || 0;
     }
 
+    // --- ОНОВЛЕНО ---
+    // Спрощена логіка для нової структури даних
     function getDetectedCountForDay(day, selectedUavCategory) {
         const detectedData = day.detected || {};
         if (selectedUavCategory === 'all') {
             return detectedData.total || 0;
         }
-        if (selectedUavCategory === 'Шахед') {
-            return detectedData['Шахед'] || 0;
-        }
-        if (selectedUavCategory === 'Гербера') {
-            return detectedData['Гербера'] || 0;
-        }
-        if (selectedUavCategory === 'Інше') {
-            let otherDetected = 0;
-            Object.keys(detectedData).forEach(type => {
-                if (type !== 'total' && type !== 'Шахед' && type !== 'Гербера') {
-                    otherDetected += detectedData[type];
-                }
-            });
-            return otherDetected;
-        }
-        return 0;
+        // Примітка: якщо в "Виявленні" немає розподілу за типами,
+        // цей фільтр не впливатиме на показник виявлених.
+        return detectedData[selectedUavCategory] || 0;
     }
 
     async function initializeDashboard() {
@@ -218,8 +194,6 @@
         }
     }
 
-    // --- ОНОВЛЕНО ---
-    // Додано логіку для фільтрації за РЛС
     function applyFilters() {
         const { dateStartFilter, dateEndFilter, takeoffPointFilter, radarFilter, directionFilter, crewFilter, uavTypeFilter } = AppState.ui;
         const startDate = dateStartFilter.value;
@@ -230,9 +204,7 @@
         const selectedCrew = crewFilter.value;
         const selectedUavCategory = uavTypeFilter.value;
 
-        // Крок 1: Фільтруємо дані по даті та іншим фільтрам, що стосуються перехоплень
         const filteredData = AppState.originalData.map(day => {
-            // Фільтруємо перехоплення
             const filteredIntercepts = day.intercepts.filter(intercept => {
                 const uavTypeMatch = selectedUavCategory === 'all' || intercept.uavCategory === selectedUavCategory;
                 return (selectedDirection === 'all' || intercept.direction === selectedDirection) &&
@@ -241,14 +213,9 @@
                        uavTypeMatch;
             });
 
-            // Створюємо новий об'єкт дня, щоб не змінювати оригінальні дані
             const newDayData = { ...day, intercepts: filteredIntercepts };
 
-            // Крок 2: Якщо обрано конкретну РЛС, перераховуємо дані по виявленню
             if (selectedRadar !== 'all') {
-                // Створюємо новий об'єкт detected, щоб не змінювати старий
-                // Примітка: ця логіка спрощена. Вона показує загальну кількість виявлених
-                // обраною РЛС, ігноруючи фільтр по типу БпЛА для цього конкретного показника.
                 newDayData.detected = {
                     total: day.radars[selectedRadar] || 0
                 };
@@ -281,7 +248,6 @@
         try {
             const selectedUavCategory = AppState.ui.uavTypeFilter.value;
 
-            // Тепер ці розрахунки використовують дані, вже оброблені фільтром РЛС
             const totalLaunched = data.reduce((sum, day) => sum + getLaunchedCountForDay(day, selectedUavCategory), 0);
             const totalDetected = data.reduce((sum, day) => sum + getDetectedCountForDay(day, selectedUavCategory), 0);
             
@@ -315,6 +281,8 @@
         }
     }
 
+    // --- ОНОВЛЕНО ---
+    // Прибрано "Інше" з фільтра
     function populateFilters(data) {
         const { dateStartFilter, dateEndFilter, takeoffPointFilter, radarFilter, directionFilter, crewFilter, uavTypeFilter, clearFiltersButton } = AppState.ui;
         if (data.length > 0) {
@@ -333,7 +301,6 @@
                 directions.add(intercept.direction);
                 crews.add(intercept.crew);
             });
-            // Збираємо назви РЛС з кожного дня
             if(day.radars) {
                 Object.keys(day.radars).forEach(radar => radars.add(radar));
             }
@@ -350,7 +317,7 @@
         };
         
         uavTypeFilter.innerHTML = `<option value="all">Всі типи</option>`;
-        ['Шахед', 'Гербера', 'Інше'].forEach(cat => {
+        ['Шахед', 'Гербера'].forEach(cat => {
             const option = document.createElement('option');
             option.value = cat; option.textContent = cat; uavTypeFilter.appendChild(option);
         });
@@ -614,7 +581,6 @@
         if (AppState.charts.radar) AppState.charts.radar.destroy();
 
         const radarTotals = dailyData.reduce((acc, day) => {
-            // Перевіряємо, чи існує об'єкт radars
             if(day.radars) {
                 for (const [radar, count] of Object.entries(day.radars)) {
                     acc[radar] = (acc[radar] || 0) + count;
