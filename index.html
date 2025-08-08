@@ -218,6 +218,8 @@
         }
     }
 
+    // --- ОНОВЛЕНО ---
+    // Додано логіку для фільтрації за РЛС
     function applyFilters() {
         const { dateStartFilter, dateEndFilter, takeoffPointFilter, radarFilter, directionFilter, crewFilter, uavTypeFilter } = AppState.ui;
         const startDate = dateStartFilter.value;
@@ -228,19 +230,36 @@
         const selectedCrew = crewFilter.value;
         const selectedUavCategory = uavTypeFilter.value;
 
+        // Крок 1: Фільтруємо дані по даті та іншим фільтрам, що стосуються перехоплень
         const filteredData = AppState.originalData.map(day => {
+            // Фільтруємо перехоплення
             const filteredIntercepts = day.intercepts.filter(intercept => {
                 const uavTypeMatch = selectedUavCategory === 'all' || intercept.uavCategory === selectedUavCategory;
-
                 return (selectedDirection === 'all' || intercept.direction === selectedDirection) &&
                        (selectedCrew === 'all' || intercept.crew === selectedCrew) &&
                        (selectedTakeoffPoint === 'all' || intercept.takeoffPoint === selectedTakeoffPoint) &&
                        uavTypeMatch;
             });
-            return { ...day, intercepts: filteredIntercepts };
+
+            // Створюємо новий об'єкт дня, щоб не змінювати оригінальні дані
+            const newDayData = { ...day, intercepts: filteredIntercepts };
+
+            // Крок 2: Якщо обрано конкретну РЛС, перераховуємо дані по виявленню
+            if (selectedRadar !== 'all') {
+                // Створюємо новий об'єкт detected, щоб не змінювати старий
+                // Примітка: ця логіка спрощена. Вона показує загальну кількість виявлених
+                // обраною РЛС, ігноруючи фільтр по типу БпЛА для цього конкретного показника.
+                newDayData.detected = {
+                    total: day.radars[selectedRadar] || 0
+                };
+            }
+            
+            return newDayData;
+
         }).filter(day =>
             (!startDate || day.date >= startDate) && (!endDate || day.date <= endDate)
         );
+
         updateDashboard(filteredData);
     }
 
@@ -262,6 +281,7 @@
         try {
             const selectedUavCategory = AppState.ui.uavTypeFilter.value;
 
+            // Тепер ці розрахунки використовують дані, вже оброблені фільтром РЛС
             const totalLaunched = data.reduce((sum, day) => sum + getLaunchedCountForDay(day, selectedUavCategory), 0);
             const totalDetected = data.reduce((sum, day) => sum + getDetectedCountForDay(day, selectedUavCategory), 0);
             
@@ -313,7 +333,10 @@
                 directions.add(intercept.direction);
                 crews.add(intercept.crew);
             });
-            Object.keys(day.radars).forEach(radar => radars.add(radar));
+            // Збираємо назви РЛС з кожного дня
+            if(day.radars) {
+                Object.keys(day.radars).forEach(radar => radars.add(radar));
+            }
         });
 
         const populateSelect = (select, items, allLabel) => {
@@ -361,8 +384,6 @@
         document.getElementById('funnel-perc-destroyed').textContent = `(${percDestroyed.toFixed(1)}% від пусків)`;
     }
 
-    // --- ОНОВЛЕНО ---
-    // Додано стовпчик "Виявлено" та оновлено спливаючі підказки
     function updateDailyFunnelDynamicsChart(dailyData) {
         if (AppState.charts.dailyKillRate) AppState.charts.dailyKillRate.destroy();
 
@@ -593,8 +614,11 @@
         if (AppState.charts.radar) AppState.charts.radar.destroy();
 
         const radarTotals = dailyData.reduce((acc, day) => {
-            for (const [radar, count] of Object.entries(day.radars)) {
-                acc[radar] = (acc[radar] || 0) + count;
+            // Перевіряємо, чи існує об'єкт radars
+            if(day.radars) {
+                for (const [radar, count] of Object.entries(day.radars)) {
+                    acc[radar] = (acc[radar] || 0) + count;
+                }
             }
             return acc;
         }, {});
