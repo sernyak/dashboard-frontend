@@ -127,24 +127,15 @@
         return 'Інше';
     }
 
-    // --- ОНОВЛЕНО ---
-    // Логіка для підрахунку запущених БпЛА з урахуванням фільтра
     function getLaunchedCountForDay(day, selectedUavCategory) {
         const launchedData = day.launched || {};
-        if (selectedUavCategory === 'all') {
-            return launchedData.total || 0;
-        }
+        if (selectedUavCategory === 'all') return launchedData.total || 0;
         return launchedData[selectedUavCategory] || 0;
     }
 
-    // --- КРИТИЧНО ОНОВЛЕНО ---
-    // Логіка для підрахунку виявлених БпЛА тепер повністю враховує фільтр по типу
     function getDetectedCountForDay(day, selectedUavCategory) {
         const detectedData = day.detected || {};
-        if (selectedUavCategory === 'all') {
-            return detectedData.total || 0;
-        }
-        // Повертаємо кількість виявлених для конкретного типу
+        if (selectedUavCategory === 'all') return detectedData.total || 0;
         return detectedData[selectedUavCategory] || 0;
     }
 
@@ -163,7 +154,6 @@
 
     async function fetchData(retries = 4, delay = 2500) {
         const apiUrl = 'https://dashboard-backend-e81h.onrender.com/api/data';
-
         for (let i = 0; i < retries; i++) {
             try {
                 if (i > 0) {
@@ -171,9 +161,7 @@
                     AppState.ui.initialMessage.textContent = `Сервер "прокидається"... Спроба підключення ${i + 1} з ${retries}`;
                 }
                 const response = await fetch(apiUrl);
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
+                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 const data = await response.json();
                 return data.map(day => ({
                     ...day,
@@ -193,6 +181,7 @@
         }
     }
 
+    // --- ВИПРАВЛЕНА ФУНКЦІЯ ФІЛЬТРАЦІЇ ---
     function applyFilters() {
         const { dateStartFilter, dateEndFilter, takeoffPointFilter, radarFilter, directionFilter, crewFilter, uavTypeFilter } = AppState.ui;
         const startDate = dateStartFilter.value;
@@ -204,7 +193,10 @@
         const selectedUavCategory = uavTypeFilter.value;
 
         const filteredData = AppState.originalData.map(day => {
-            const filteredIntercepts = day.intercepts.filter(intercept => {
+            const newDayData = { ...day }; // Створюємо копію денних даних
+
+            // 1. Фільтруємо перехоплення
+            newDayData.intercepts = day.intercepts.filter(intercept => {
                 const uavTypeMatch = selectedUavCategory === 'all' || intercept.uavCategory === selectedUavCategory;
                 return (selectedDirection === 'all' || intercept.direction === selectedDirection) &&
                        (selectedCrew === 'all' || intercept.crew === selectedCrew) &&
@@ -212,16 +204,11 @@
                        uavTypeMatch;
             });
 
-            const newDayData = { ...day, intercepts: filteredIntercepts };
-
+            // 2. Якщо обрано фільтр по РЛС, ПОВНІСТЮ замінюємо дані про виявлення
             if (selectedRadar !== 'all') {
-                 // Фільтрація по РЛС тепер впливає на загальну кількість виявлених,
-                 // але для простоти, вона показуватиме всі виявлені цією РЛС,
-                 // а фільтр по типу БПЛА застосовується вже на наступному кроці.
-                newDayData.detected = {
-                    ...day.detected, // Зберігаємо розбивку по типам
-                    total: day.radars[selectedRadar] || 0
-                };
+                // Якщо для цього дня є дані по обраній РЛС, використовуємо їх.
+                // Інакше, вважаємо, що виявлень не було (нульовий об'єкт).
+                newDayData.detected = day.radars[selectedRadar] || { total: 0, 'Шахед': 0, 'Гербера': 0 };
             }
             
             return newDayData;
@@ -251,7 +238,6 @@
         try {
             const selectedUavCategory = AppState.ui.uavTypeFilter.value;
 
-            // Тепер ці функції коректно враховують фільтр по типу БпЛА
             const totalLaunched = data.reduce((sum, day) => sum + getLaunchedCountForDay(day, selectedUavCategory), 0);
             const totalDetected = data.reduce((sum, day) => sum + getDetectedCountForDay(day, selectedUavCategory), 0);
             
@@ -279,7 +265,8 @@
             updateTargetTypeChart(allIntercepts);
             updateDirectionChart(allIntercepts);
             updateCrewChart(allIntercepts);
-            updateRadarChart(data, totalLaunched);
+            // Передаємо оригінальні дані для коректного розрахунку внеску кожної РЛС
+            updateRadarChart(AppState.originalData);
         } catch (error) {
             console.error("Помилка під час оновлення дашборду:", error);
         }
@@ -360,7 +347,6 @@
         const selectedUavCategory = AppState.ui.uavTypeFilter.value;
 
         const dailyMetrics = dailyData.map(day => {
-            // Тепер ці функції коректно враховують фільтр
             const launched = getLaunchedCountForDay(day, selectedUavCategory);
             const detected = getDetectedCountForDay(day, selectedUavCategory);
             return {
@@ -380,22 +366,11 @@
                     const value = context.raw;
                     let label = context.dataset.label || '';
                     let perc = 0;
-
                     switch(label) {
-                        case 'Виявлено':
-                            perc = metrics.launched > 0 ? (metrics.detected / metrics.launched * 100) : 0;
-                            label = `Виявлено: ${value} (${perc.toFixed(0)}% від перетинів)`;
-                            break;
-                        case 'Пуски':
-                            perc = metrics.detected > 0 ? (metrics.intercepts / metrics.detected * 100) : 0;
-                            label = `Пуски: ${value} (${perc.toFixed(0)}% від виявлених)`;
-                            break;
-                        case 'Знищено':
-                            perc = metrics.intercepts > 0 ? (metrics.destroyed / metrics.intercepts * 100) : 0;
-                            label = `Знищено: ${value} (${perc.toFixed(0)}% від пусків)`;
-                            break;
-                        default:
-                            label = `${label}: ${value}`;
+                        case 'Виявлено': perc = metrics.launched > 0 ? (metrics.detected / metrics.launched * 100) : 0; label = `Виявлено: ${value} (${perc.toFixed(0)}% від перетинів)`; break;
+                        case 'Пуски': perc = metrics.detected > 0 ? (metrics.intercepts / metrics.detected * 100) : 0; label = `Пуски: ${value} (${perc.toFixed(0)}% від виявлених)`; break;
+                        case 'Знищено': perc = metrics.intercepts > 0 ? (metrics.destroyed / metrics.intercepts * 100) : 0; label = `Знищено: ${value} (${perc.toFixed(0)}% від пусків)`; break;
+                        default: label = `${label}: ${value}`;
                     }
                     return label;
                 }
@@ -407,26 +382,10 @@
             data: {
                 labels,
                 datasets: [
-                    {
-                        label: 'Перетнуло ЛБЗ/ДКУ',
-                        data: dailyMetrics.map(m => m.launched),
-                        backgroundColor: 'rgba(59, 130, 246, 0.7)',
-                    },
-                    {
-                        label: 'Виявлено',
-                        data: dailyMetrics.map(m => m.detected),
-                        backgroundColor: 'rgba(251, 191, 36, 0.7)',
-                    },
-                    {
-                        label: 'Пуски',
-                        data: dailyMetrics.map(m => m.intercepts),
-                        backgroundColor: 'rgba(249, 115, 22, 0.7)',
-                    },
-                    {
-                        label: 'Знищено',
-                        data: dailyMetrics.map(m => m.destroyed),
-                        backgroundColor: 'rgba(34, 197, 94, 0.7)',
-                    }
+                    { label: 'Перетнуло ЛБЗ/ДКУ', data: dailyMetrics.map(m => m.launched), backgroundColor: 'rgba(59, 130, 246, 0.7)' },
+                    { label: 'Виявлено', data: dailyMetrics.map(m => m.detected), backgroundColor: 'rgba(251, 191, 36, 0.7)' },
+                    { label: 'Пуски', data: dailyMetrics.map(m => m.intercepts), backgroundColor: 'rgba(249, 115, 22, 0.7)' },
+                    { label: 'Знищено', data: dailyMetrics.map(m => m.destroyed), backgroundColor: 'rgba(34, 197, 94, 0.7)' }
                 ]
             },
             options: options
@@ -441,37 +400,17 @@
             ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#9ca3af'; ctx.font = "16px 'Inter', sans-serif";
             ctx.fillText('Немає даних для відображення', ctx.canvas.width / 2, ctx.canvas.height / 2); ctx.restore(); return null;
         }
-
         const total = data.reduce((sum, item) => sum + item[1], 0);
-        const chartData = data.map(d => d[1]);
-        const chartLabels = data.map(d => d[0]);
-        const chartColors = Array.from({ length: data.length }, (_, i) => colorPalette[i % colorPalette.length]);
-
         return new Chart(ctx, {
             type: 'doughnut', data: {
-                labels: chartLabels,
-                datasets: [{ 
-                    data: chartData, 
-                    backgroundColor: chartColors, 
-                    borderWidth: 0 
-                }]
-            }, 
-            options: {
+                labels: data.map(d => d[0]),
+                datasets: [{ data: data.map(d => d[1]), backgroundColor: Array.from({ length: data.length }, (_, i) => colorPalette[i % colorPalette.length]), borderWidth: 0 }]
+            }, options: {
                 responsive: true, maintainAspectRatio: false,
                 plugins: {
                     legend: { position: 'right', labels: { boxWidth: 20, color: '#e5e7eb' } },
-                    datalabels: {
-                        color: 'white',
-                        textAlign: 'center',
-                        font: { 
-                            weight: 'bold',
-                            size: 11
-                        },
-                        formatter: (value) => {
-                            const percentage = total > 0 ? (value / total * 100) : 0;
-                            if (percentage < 4) return null;
-                            return `${value}\n(${percentage.toFixed(0)}%)`;
-                        }
+                    datalabels: { color: 'white', textAlign: 'center', font: { weight: 'bold', size: 11 },
+                        formatter: (value) => { const p = total > 0 ? (value / total * 100) : 0; if (p < 4) return null; return `${value}\n(${p.toFixed(0)}%)`; }
                     }
                 }
             }
@@ -480,175 +419,80 @@
     
     function createHorizontalBarChart(canvasId, chartInstance, intercepts, dataKey, colorPalette) {
         if (chartInstance) chartInstance.destroy();
-
         const dataMap = intercepts.reduce((acc, item) => {
             const key = item[dataKey];
             if (key && key !== 'Невідомо') {
-                if (!acc[key]) {
-                    acc[key] = { total: 0, destroyed: 0 };
-                }
+                if (!acc[key]) acc[key] = { total: 0, destroyed: 0 };
                 acc[key].total++;
-                if (item.isDestroyed) {
-                    acc[key].destroyed++;
-                }
+                if (item.isDestroyed) acc[key].destroyed++;
             }
             return acc;
         }, {});
-
-        const sortedData = Object.entries(dataMap)
-            .filter(([, stats]) => stats.destroyed > 0)
-            .sort(([, a], [, b]) => b.destroyed - a.destroyed);
-
+        const sortedData = Object.entries(dataMap).filter(([, stats]) => stats.destroyed > 0).sort(([, a], [, b]) => b.destroyed - a.destroyed);
         const options = getChartOptions();
         options.indexAxis = 'y';
-        options.plugins.datalabels = {
-            anchor: 'end',
-            align: 'right',
-            color: 'white',
-            font: { weight: 'bold' },
-            formatter: (value, context) => {
-                const stats = sortedData[context.dataIndex][1];
-                const killRate = stats.total > 0 ? (stats.destroyed / stats.total * 100) : 0;
-                return `${value} збито (${killRate.toFixed(0)}%)`;
-            }
+        options.plugins.datalabels = { anchor: 'end', align: 'right', color: 'white', font: { weight: 'bold' },
+            formatter: (value, context) => { const stats = sortedData[context.dataIndex][1]; const kr = stats.total > 0 ? (stats.destroyed / stats.total * 100) : 0; return `${value} збито (${kr.toFixed(0)}%)`; }
         };
-
         return new Chart(document.getElementById(canvasId), {
-            type: 'bar',
-            data: {
+            type: 'bar', data: {
                 labels: sortedData.map(c => c[0]),
-                datasets: [{
-                    label: 'Знищено БпЛА',
-                    data: sortedData.map(c => c[1].destroyed),
-                    backgroundColor: colorPalette,
-                }]
-            },
-            options: options
+                datasets: [{ label: 'Знищено БпЛА', data: sortedData.map(c => c[1].destroyed), backgroundColor: colorPalette, }]
+            }, options: options
         });
     }
 
     function updateKillRateComparisonChart(totalLaunched, totalDetected, totalIntercepts, totalDestroyed) {
         if (AppState.charts.killRateComparison) AppState.charts.killRateComparison.destroy();
-
         const killRateFromLaunched = totalLaunched > 0 ? (totalDestroyed / totalLaunched * 100) : 0;
         const killRateFromDetected = totalDetected > 0 ? (totalDestroyed / totalDetected * 100) : 0;
         const killRateFromIntercepts = totalIntercepts > 0 ? (totalDestroyed / totalIntercepts * 100) : 0;
-
         const options = getChartOptions();
         options.indexAxis = 'y';
         options.scales.x.max = 100;
         options.scales.x.ticks = { callback: (value) => value + '%' };
-        options.plugins.datalabels = {
-            display: true,
-            anchor: 'end',
-            align: 'right',
-            color: 'white',
-            font: { weight: 'bold' },
-            formatter: (value) => `${value.toFixed(1)}%`
-        };
-
-
+        options.plugins.datalabels = { display: true, anchor: 'end', align: 'right', color: 'white', font: { weight: 'bold' }, formatter: (value) => `${value.toFixed(1)}%` };
         AppState.charts.killRateComparison = new Chart(document.getElementById('killRateComparisonChart'), {
-            type: 'bar',
-            data: {
+            type: 'bar', data: {
                 labels: ['% збиття від Пусків', '% збиття від Виявлених', '% збиття від Перетину ЛБЗ/ДКУ'],
-                datasets: [{
-                    label: 'Ефективність ураження',
-                    data: [killRateFromIntercepts, killRateFromDetected, killRateFromLaunched],
-                    backgroundColor: ['#2ecc71', '#f1c40f', '#3498db']
-                }]
-            },
-            options: options
+                datasets: [{ label: 'Ефективність ураження', data: [killRateFromIntercepts, killRateFromDetected, killRateFromLaunched], backgroundColor: ['#2ecc71', '#f1c40f', '#3498db'] }]
+            }, options: options
         });
     }
 
-    function updateCrewChart(intercepts) {
-        AppState.charts.crew = createHorizontalBarChart('crewChart', AppState.charts.crew, intercepts, 'crew', PALETTE_1);
-    }
-
-    function updateTakeoffPointChart(intercepts) {
-        AppState.charts.takeoffPoint = createHorizontalBarChart('takeoffPointChart', AppState.charts.takeoffPoint, intercepts, 'takeoffPoint', PALETTE_2);
-    }
-
-    function updateTargetTypeChart(intercepts) {
-        const data = aggregateAndSort(intercepts, 'uavCategory', false);
-        AppState.charts.targetType = createEnhancedDoughnutChart('targetTypeChart', AppState.charts.targetType, data, PALETTE_1);
-    }
+    function updateCrewChart(intercepts) { AppState.charts.crew = createHorizontalBarChart('crewChart', AppState.charts.crew, intercepts, 'crew', PALETTE_1); }
+    function updateTakeoffPointChart(intercepts) { AppState.charts.takeoffPoint = createHorizontalBarChart('takeoffPointChart', AppState.charts.takeoffPoint, intercepts, 'takeoffPoint', PALETTE_2); }
+    function updateTargetTypeChart(intercepts) { AppState.charts.targetType = createEnhancedDoughnutChart('targetTypeChart', AppState.charts.targetType, aggregateAndSort(intercepts, 'uavCategory', false), PALETTE_1); }
+    function updateDirectionChart(intercepts) { AppState.charts.direction = createEnhancedDoughnutChart('directionChart', AppState.charts.direction, aggregateAndSort(intercepts, 'direction', false), PALETTE_2); }
     
-    function updateDirectionChart(intercepts) {
-        const data = aggregateAndSort(intercepts, 'direction', false);
-        AppState.charts.direction = createEnhancedDoughnutChart('directionChart', AppState.charts.direction, data, PALETTE_2);
-    }
-    
-    function updateRadarChart(dailyData, totalLaunched) {
+    function updateRadarChart(allUnfilteredData) {
         if (AppState.charts.radar) AppState.charts.radar.destroy();
-
-        const radarTotals = dailyData.reduce((acc, day) => {
-            if(day.radars) {
-                for (const [radar, count] of Object.entries(day.radars)) {
-                    acc[radar] = (acc[radar] || 0) + count;
+        const radarTotals = allUnfilteredData.reduce((acc, day) => {
+            if (day.radars) {
+                for (const radarName in day.radars) {
+                    if (!acc[radarName]) acc[radarName] = { total: 0 };
+                    acc[radarName].total += day.radars[radarName].total;
                 }
             }
             return acc;
         }, {});
-        
-        const sortedRadars = Object.entries(radarTotals).sort(([, a], [, b]) => b - a);
-
+        const sortedRadars = Object.entries(radarTotals).sort(([, a], [, b]) => b.total - a.total);
+        const totalAllLaunched = allUnfilteredData.reduce((sum, day) => sum + (day.launched?.total || 0), 0);
         const options = getChartOptions();
-        options.plugins.datalabels = {
-            display: true,
-            anchor: 'end',
-            align: 'top',
-            offset: 4,
-            color: 'white',
-            font: { weight: 'bold' },
-            formatter: (value) => {
-                // Примітка: цей відсоток показує частку від УСІХ запущених (не відфільтрованих)
-                // щоб оцінити внесок кожної РЛС у загальну картину
-                const totalAllLaunched = AppState.originalData.reduce((sum, day) => sum + getLaunchedCountForDay(day, 'all'), 0);
-                const percentage = totalAllLaunched > 0 ? (value / totalAllLaunched * 100) : 0;
-                return `${value} (${percentage.toFixed(1)}%)`;
-            }
+        options.plugins.datalabels = { display: true, anchor: 'end', align: 'top', offset: 4, color: 'white', font: { weight: 'bold' },
+            formatter: (value) => { const p = totalAllLaunched > 0 ? (value / totalAllLaunched * 100) : 0; return `${value} (${p.toFixed(1)}%)`; }
         };
-        options.plugins.tooltip = {
-            callbacks: {
-                label: function(context) {
-                    const value = context.raw;
-                    const totalAllLaunched = AppState.originalData.reduce((sum, day) => sum + getLaunchedCountForDay(day, 'all'), 0);
-                    const percentage = totalAllLaunched > 0 ? (value / totalAllLaunched * 100) : 0;
-                    return `Виявлено: ${value} (${percentage.toFixed(1)}% від усіх перетинів за весь період)`;
-                }
-            }
-        };
-
+        options.plugins.tooltip = { callbacks: { label: (ctx) => { const p = totalAllLaunched > 0 ? (ctx.raw / totalAllLaunched * 100) : 0; return `Виявлено: ${ctx.raw} (${p.toFixed(1)}% від усіх перетинів)`; } } };
         AppState.charts.radar = new Chart(document.getElementById('radarChart'), {
-            type: 'bar',
-            data: {
+            type: 'bar', data: {
                 labels: sortedRadars.map(p => p[0]),
-                datasets: [{
-                    label: 'Виявлено БпЛА',
-                    data: sortedRadars.map(p => p[1]),
-                    backgroundColor: 'rgba(99, 102, 241, 0.7)'
-                }]
-            },
-            options: options
+                datasets: [{ label: 'Виявлено БпЛА', data: sortedRadars.map(p => p[1].total), backgroundColor: 'rgba(99, 102, 241, 0.7)' }]
+            }, options: options
         });
     }
 
-    function setLoadingState(isLoading) {
-        AppState.ui.loader.classList.toggle('hidden', !isLoading);
-        AppState.ui.initialMessage.classList.toggle('hidden', !isLoading);
-        AppState.ui.dashboardContent.classList.toggle('hidden', isLoading);
-    }
-
-    function handleInitializationError(error) {
-        console.error('Помилка ініціалізації дашборду:', error);
-        AppState.ui.initialMessage.textContent = error.message;
-        AppState.ui.initialMessage.classList.add('text-red-400');
-        setLoadingState(false);
-        AppState.ui.initialMessage.classList.remove('hidden');
-    }
-
+    function setLoadingState(isLoading) { AppState.ui.loader.classList.toggle('hidden', !isLoading); AppState.ui.initialMessage.classList.toggle('hidden', !isLoading); AppState.ui.dashboardContent.classList.toggle('hidden', isLoading); }
+    function handleInitializationError(error) { console.error('Помилка ініціалізації дашборду:', error); AppState.ui.initialMessage.textContent = error.message; AppState.ui.initialMessage.classList.add('text-red-400'); setLoadingState(false); AppState.ui.initialMessage.classList.remove('hidden'); }
     function aggregateAndSort(data, key, slice) {
         const aggregated = data.filter(i => i.isDestroyed).reduce((acc, item) => {
             const itemKey = item[key];
@@ -658,9 +502,7 @@
         const sorted = Object.entries(aggregated).sort(([,a],[,b]) => b-a);
         return slice ? sorted.slice(0, 10) : sorted;
     }
-
     function getChartOptions() { return { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', labels: { color: '#e5e7eb' } }, datalabels: { display: false } }, scales: { x: { grid: { display: false }, ticks: { color: '#9ca3af' } }, y: { grid: { color: '#374151' }, ticks: { beginAtZero: true, color: '#9ca3af' } } } }; }
-    
     </script>
 </body>
 </html>
