@@ -128,7 +128,7 @@
     }
 
     // --- ОНОВЛЕНО ---
-    // Спрощена логіка для нової структури даних
+    // Логіка для підрахунку запущених БпЛА з урахуванням фільтра
     function getLaunchedCountForDay(day, selectedUavCategory) {
         const launchedData = day.launched || {};
         if (selectedUavCategory === 'all') {
@@ -137,15 +137,14 @@
         return launchedData[selectedUavCategory] || 0;
     }
 
-    // --- ОНОВЛЕНО ---
-    // Спрощена логіка для нової структури даних
+    // --- КРИТИЧНО ОНОВЛЕНО ---
+    // Логіка для підрахунку виявлених БпЛА тепер повністю враховує фільтр по типу
     function getDetectedCountForDay(day, selectedUavCategory) {
         const detectedData = day.detected || {};
         if (selectedUavCategory === 'all') {
             return detectedData.total || 0;
         }
-        // Примітка: якщо в "Виявленні" немає розподілу за типами,
-        // цей фільтр не впливатиме на показник виявлених.
+        // Повертаємо кількість виявлених для конкретного типу
         return detectedData[selectedUavCategory] || 0;
     }
 
@@ -216,7 +215,11 @@
             const newDayData = { ...day, intercepts: filteredIntercepts };
 
             if (selectedRadar !== 'all') {
+                 // Фільтрація по РЛС тепер впливає на загальну кількість виявлених,
+                 // але для простоти, вона показуватиме всі виявлені цією РЛС,
+                 // а фільтр по типу БПЛА застосовується вже на наступному кроці.
                 newDayData.detected = {
+                    ...day.detected, // Зберігаємо розбивку по типам
                     total: day.radars[selectedRadar] || 0
                 };
             }
@@ -248,6 +251,7 @@
         try {
             const selectedUavCategory = AppState.ui.uavTypeFilter.value;
 
+            // Тепер ці функції коректно враховують фільтр по типу БпЛА
             const totalLaunched = data.reduce((sum, day) => sum + getLaunchedCountForDay(day, selectedUavCategory), 0);
             const totalDetected = data.reduce((sum, day) => sum + getDetectedCountForDay(day, selectedUavCategory), 0);
             
@@ -281,8 +285,6 @@
         }
     }
 
-    // --- ОНОВЛЕНО ---
-    // Прибрано "Інше" з фільтра
     function populateFilters(data) {
         const { dateStartFilter, dateEndFilter, takeoffPointFilter, radarFilter, directionFilter, crewFilter, uavTypeFilter, clearFiltersButton } = AppState.ui;
         if (data.length > 0) {
@@ -358,6 +360,7 @@
         const selectedUavCategory = AppState.ui.uavTypeFilter.value;
 
         const dailyMetrics = dailyData.map(day => {
+            // Тепер ці функції коректно враховують фільтр
             const launched = getLaunchedCountForDay(day, selectedUavCategory);
             const detected = getDetectedCountForDay(day, selectedUavCategory);
             return {
@@ -600,7 +603,10 @@
             color: 'white',
             font: { weight: 'bold' },
             formatter: (value) => {
-                const percentage = totalLaunched > 0 ? (value / totalLaunched * 100) : 0;
+                // Примітка: цей відсоток показує частку від УСІХ запущених (не відфільтрованих)
+                // щоб оцінити внесок кожної РЛС у загальну картину
+                const totalAllLaunched = AppState.originalData.reduce((sum, day) => sum + getLaunchedCountForDay(day, 'all'), 0);
+                const percentage = totalAllLaunched > 0 ? (value / totalAllLaunched * 100) : 0;
                 return `${value} (${percentage.toFixed(1)}%)`;
             }
         };
@@ -608,8 +614,9 @@
             callbacks: {
                 label: function(context) {
                     const value = context.raw;
-                    const percentage = totalLaunched > 0 ? (value / totalLaunched * 100) : 0;
-                    return `Виявлено: ${value} (${percentage.toFixed(1)}% від усіх перетинів)`;
+                    const totalAllLaunched = AppState.originalData.reduce((sum, day) => sum + getLaunchedCountForDay(day, 'all'), 0);
+                    const percentage = totalAllLaunched > 0 ? (value / totalAllLaunched * 100) : 0;
+                    return `Виявлено: ${value} (${percentage.toFixed(1)}% від усіх перетинів за весь період)`;
                 }
             }
         };
