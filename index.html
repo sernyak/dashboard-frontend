@@ -139,7 +139,13 @@
             return launchedData['Гербера'] || 0;
         }
         if (selectedUavCategory === 'Інше') {
-            return launchedData['Гербера'] || 0;
+            let otherLaunched = 0;
+            Object.keys(launchedData).forEach(type => {
+                if (type !== 'total' && type !== 'Шахед' && type !== 'Гербера') {
+                    otherLaunched += launchedData[type];
+                }
+            });
+            return otherLaunched;
         }
         return 0;
     }
@@ -181,13 +187,15 @@
     }
 
     async function fetchData(retries = 4, delay = 2500) {
+        const apiUrl = 'https://dashboard-backend-e81h.onrender.com/api/data';
+
         for (let i = 0; i < retries; i++) {
             try {
                 if (i > 0) {
                     console.log(`Retrying... Attempt ${i + 1}`);
                     AppState.ui.initialMessage.textContent = `Сервер "прокидається"... Спроба підключення ${i + 1} з ${retries}`;
                 }
-                const response = await fetch('https://dashboard-backend-e81h.onrender.com/api/data');
+                const response = await fetch(apiUrl);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
@@ -353,6 +361,8 @@
         document.getElementById('funnel-perc-destroyed').textContent = `(${percDestroyed.toFixed(1)}% від пусків)`;
     }
 
+    // --- ОНОВЛЕНО ---
+    // Додано стовпчик "Виявлено" та оновлено спливаючі підказки
     function updateDailyFunnelDynamicsChart(dailyData) {
         if (AppState.charts.dailyKillRate) AppState.charts.dailyKillRate.destroy();
 
@@ -378,15 +388,23 @@
                     const metrics = dailyMetrics[i];
                     const value = context.raw;
                     let label = context.dataset.label || '';
+                    let perc = 0;
 
-                    if (label === 'Знищено') {
-                        const perc = metrics.intercepts > 0 ? (metrics.destroyed / metrics.intercepts * 100) : 0;
-                        label = `Знищено: ${value} (${perc.toFixed(0)}% від пусків)`;
-                    } else if (label === 'Пуски') {
-                        const perc = metrics.launched > 0 ? (metrics.intercepts / metrics.launched * 100) : 0;
-                        label = `Пуски: ${value} (${perc.toFixed(0)}% від перетинів)`;
-                    } else {
-                        label = `${label}: ${value}`;
+                    switch(label) {
+                        case 'Виявлено':
+                            perc = metrics.launched > 0 ? (metrics.detected / metrics.launched * 100) : 0;
+                            label = `Виявлено: ${value} (${perc.toFixed(0)}% від перетинів)`;
+                            break;
+                        case 'Пуски':
+                            perc = metrics.detected > 0 ? (metrics.intercepts / metrics.detected * 100) : 0;
+                            label = `Пуски: ${value} (${perc.toFixed(0)}% від виявлених)`;
+                            break;
+                        case 'Знищено':
+                            perc = metrics.intercepts > 0 ? (metrics.destroyed / metrics.intercepts * 100) : 0;
+                            label = `Знищено: ${value} (${perc.toFixed(0)}% від пусків)`;
+                            break;
+                        default:
+                            label = `${label}: ${value}`;
                     }
                     return label;
                 }
@@ -402,6 +420,11 @@
                         label: 'Перетнуло ЛБЗ/ДКУ',
                         data: dailyMetrics.map(m => m.launched),
                         backgroundColor: 'rgba(59, 130, 246, 0.7)',
+                    },
+                    {
+                        label: 'Виявлено',
+                        data: dailyMetrics.map(m => m.detected),
+                        backgroundColor: 'rgba(251, 191, 36, 0.7)',
                     },
                     {
                         label: 'Пуски',
